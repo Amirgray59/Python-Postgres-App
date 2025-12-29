@@ -16,6 +16,10 @@ def decrease_quality(item, amount=1):
     if item.quality > minQuantity:
         item.quality -= amount
 
+def decrease_sell_in(item):
+    item.sell_in -= 1
+
+
 
 class GildedRose(object):
 
@@ -37,8 +41,8 @@ class GildedRose(object):
                             increase_quality(item)
 
             if item.name != SULFURAS:
-                item.sell_in = item.sell_in - 1
-                
+                decrease_sell_in(item)
+
             if item.sell_in < 0:
                 if item.name != AGED_BRIE:
                     if item.name != BACKSTAGE:
