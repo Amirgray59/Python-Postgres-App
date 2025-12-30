@@ -7,7 +7,7 @@ from app.domain.models import (
     ItemUpdate,
     ItemResponse,
 )
-from app.domain.errors import invalid_input, item_not_found
+from app.domain.errors import invalid_type, item_not_found
 from app.api.deps import get_db, FakeDB
 
 
