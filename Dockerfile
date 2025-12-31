@@ -1,24 +1,15 @@
-FROM python:3.13-slim
+FROM python:3.13-slim 
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+WORKDIR /main 
 
-RUN useradd -m appuser
+COPY requirements.txt . 
 
-WORKDIR /main
-
-RUN pip install --upgrade pip
-
-COPY requirements.txt .
-
+RUN pip install --upgrade pip 
 RUN pip install -r requirements.txt
 
-COPY app ./app
+COPY app ./app 
+COPY tests ./tests 
 
-COPY tests ./tests
+RUN pip install "fastapi[standard]"
 
-RUN chown -R appuser:appuser /main
-
-USER appuser
-
-CMD ["python", "app/main.py"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
