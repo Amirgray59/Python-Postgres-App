@@ -1,45 +1,34 @@
 import os
-import psycopg
-from dotenv import load_dotenv
-from contextlib import contextmanager
-from fastapi import Depends
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-
+from sqlalchemy.orm import sessionmaker, Session
+from dotenv import load_dotenv
 
 load_dotenv()
 
-# DATABASE_URL = (
-#     f"postgresql+psycopg://{os.getenv('POSTGRES_USER')}:"
-#     f"{os.getenv('POSTGRES_PASSWORD')}@"
-#     f"{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/"
-#     f"{os.getenv('POSTGRES_DB')}"
-# )
+DATABASE_URL = (
+    f"postgresql+psycopg://"
+    f"{os.getenv('POSTGRES_USER')}:"
+    f"{os.getenv('POSTGRES_PASSWORD')}@"
+    f"{os.getenv('POSTGRES_HOST')}:"
+    f"{os.getenv('POSTGRES_PORT')}/"
+    f"{os.getenv('POSTGRES_DB')}"
+)
 
-# engine = create_engine(DATABASE_URL, echo=False, future=True, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+)
 
-# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-# def get_db():
-#     db = SessionLocal()
-#     try:
-#         yield db
-#     finally:
-#         db.close()
-
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False,
+)
 
 
-def get_db():
-    conn = psycopg.connect(
-        host=os.getenv("POSTGRES_HOST"),
-        port=os.getenv("POSTGRES_PORT"),
-        dbname=os.getenv("POSTGRES_DB"),
-        user=os.getenv("POSTGRES_USER"),
-        password=os.getenv("POSTGRES_PASSWORD"),
-    )
+def get_db() -> Session:
+    db = SessionLocal()
     try:
-        yield conn
+        yield db
     finally:
-        conn.close()
+        db.close()

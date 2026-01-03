@@ -1,17 +1,13 @@
 from fastapi import APIRouter, Depends, Response, status
 from typing import List
 
-from app.domain.models import (
-    ItemCreate,
-    ItemUpdate,
-    ItemResponse,
-)
-from app.domain.errors import item_not_found, owner_not_found
-
+from sqlalchemy.orm import Session
 from app.db.postgres.session import get_db
+from app.db.postgres.models import Item, Tag, User as PgUser
 from app.db.mongo.session import mongo_db
-from psycopg import Connection
 
+from app.domain.models import ItemCreate, ItemUpdate, ItemResponse
+from app.domain.errors import item_not_found, owner_not_found
 from app.utils.converter import itemTupleToDic
 import structlog
 
@@ -20,138 +16,116 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/items", tags=["items"])
 
 
-
+# ------------------------
+# READ ALL ITEMS (Mongo projection)
+# ------------------------
 @router.get("", status_code=status.HTTP_200_OK)
-async def all_items():
+async def all_items(limit: int = 100):
     cursor = mongo_db.items_read.find({})
-    items = await cursor.to_list(length=100)
-
+    items = await cursor.to_list(length=limit)
     for item in items:
         item["id"] = item.pop("_id")
-
     return items
 
-@router.post(
-    "",
-    status_code=status.HTTP_201_CREATED,
-    response_model=ItemResponse,
-)
-async def create_item(
-    item: ItemCreate,
-    db: Connection = Depends(get_db),
-):
 
+# ------------------------
+# CREATE ITEM
+# ------------------------
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
+async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
+
+    # check owner existence in Mongo (read projection)
     user = await mongo_db.users_read.find_one({"_id": item.owner_id})
+    if not user:
+        owner_not_found(item.owner_id)
 
-    with db.cursor() as cur:
-    
-        if not user:
-            owner_not_found(item.owner_id)
+    # create item in Postgres
+    db_item = Item(
+        name=item.name,
+        sell_in=item.sell_in,
+        quality=item.quality,
+        owner_id=item.owner_id
+    )
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
 
-        cur.execute(
-            """
-            INSERT INTO items (name, sell_in, quality, owner_id)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, name, sell_in, quality
-            """,
-            (item.name, item.sell_in, item.quality, item.owner_id),
-        )
-        row = cur.fetchone()
-        item_dict = itemTupleToDic(row)
+    # create tags in Postgres
+    tag_objs = [Tag(name=tag_name, item_id=db_item.id) for tag_name in item.tags]
+    db.add_all(tag_objs)
+    db.commit()
 
-        for tag_name in item.tags:
-            cur.execute(
-                """
-                INSERT INTO tags (name, item_id)
-                VALUES (%s, %s)
-                """,
-                (tag_name, item_dict["id"]),
-            )
-
-        db.commit()
-
-    owner_dict = {
-        "id": user["_id"],
-        "name": user["name"],
-        "email": user["email"]
-    }
-
+    # backfill Mongo read model
     read_model = {
-        "_id": item_dict["id"],
-        "name": item_dict["name"],
-        "sell_in": item_dict["sell_in"],
-        "quality": item_dict["quality"],
-        "owner": owner_dict,
-        "tags": item.tags,
+        "_id": db_item.id,
+        "name": db_item.name,
+        "sell_in": db_item.sell_in,
+        "quality": db_item.quality,
+        "owner": {"id": user["_id"], "name": user["name"], "email": user["email"]},
+        "tags": item.tags
     }
-
     await mongo_db.items_read.insert_one(read_model)
 
+    # return API response
     read_model["id"] = read_model.pop("_id")
-
     logger.info("item.create", item=read_model)
     return read_model
 
 
+# ------------------------
+# GET ITEM BY ID
+# ------------------------
 @router.get("/{item_id}", response_model=ItemResponse)
 async def get_item(item_id: int):
     item = await mongo_db.items_read.find_one({"_id": item_id})
-
     if not item:
         item_not_found(item_id)
 
     owner = item["owner"]
     item["owner"] = {
-        "id": owner["_id"],
+        "id": owner["id"],
         "name": owner["name"],
         "email": owner["email"],
     }
-
     item["id"] = item.pop("_id")
     return item
 
 
-
+# ------------------------
+# UPDATE ITEM
+# ------------------------
 @router.put("/{item_id}", response_model=ItemResponse)
-async def update_item(
-    item_id: int,
-    payload: ItemUpdate,
-    db: Connection = Depends(get_db),
-):
-    with db.cursor() as cur:
+async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)):
 
-        item = await mongo_db.items_read.find_one({"_id": item_id})
+    # get item from Mongo
+    item = await mongo_db.items_read.find_one({"_id": item_id})
+    if not item:
+        item_not_found(item_id)
 
-        if not item:
-            item_not_found(item_id)
+    # update Postgres
+    db_item = db.query(Item).filter(Item.id == item_id).first()
+    if not db_item:
+        item_not_found(item_id)
 
-        owner_id = item["owner"]["id"]
+    if payload.name is not None:
+        db_item.name = payload.name
+    if payload.sell_in is not None:
+        db_item.sell_in = payload.sell_in
+    if payload.quality is not None:
+        db_item.quality = payload.quality
 
-        if payload.tags is not None:
-            cur.execute("DELETE FROM tags WHERE item_id = %s", (item_id,))
-            for tag in payload.tags:
-                cur.execute("INSERT INTO tags (name, item_id) VALUES (%s, %s)", (tag, item_id))
+    if payload.tags is not None:
+        # remove old tags
+        db.query(Tag).filter(Tag.item_id == item_id).delete()
+        db.add_all([Tag(name=t, item_id=item_id) for t in payload.tags])
 
-        cur.execute(
-            """
-            UPDATE items
-            SET
-                name = COALESCE(%s, name),
-                sell_in = COALESCE(%s, sell_in),
-                quality = COALESCE(%s, quality)
-            WHERE id = %s
-            RETURNING id, name, sell_in, quality
-            """,
-            (payload.name, payload.sell_in, payload.quality, item_id)
-        )
-        updated_row = cur.fetchone()
-        db.commit()
+    db.commit()
+    db.refresh(db_item)
 
+    # backfill Mongo
+    owner_id = db_item.owner_id
     owner = await mongo_db.users_read.find_one({"_id": owner_id})
-    if owner:
-        owner_dict = {"id": owner["_id"], "name": owner["name"], "email": owner["email"]}
-    else:
-        owner_dict = {"id": owner_id, "name": "unknown", "email": "unknown"}
+    owner_dict = {"id": owner["_id"], "name": owner["name"], "email": owner["email"]} if owner else {"id": owner_id, "name": "unknown", "email": "unknown"}
 
     update_fields = {}
     if payload.name is not None:
@@ -163,11 +137,7 @@ async def update_item(
     if payload.tags is not None:
         update_fields["tags"] = payload.tags
 
-    await mongo_db.items_read.update_one(
-        {"_id": item_id},
-        {"$set": update_fields},
-        upsert=True 
-    )
+    await mongo_db.items_read.update_one({"_id": item_id}, {"$set": update_fields}, upsert=True)
 
     updated_item = await mongo_db.items_read.find_one({"_id": item_id})
     updated_item["id"] = updated_item.pop("_id")
@@ -177,21 +147,24 @@ async def update_item(
     return updated_item
 
 
+# ------------------------
+# DELETE ITEM
+# ------------------------
 @router.delete("/{item_id}", status_code=status.HTTP_200_OK)
-async def delete_item(
-    item_id: int,
-    db: Connection = Depends(get_db),
-):
-    with db.cursor() as cur:
-        cur.execute("DELETE FROM items WHERE id = %s", (item_id,))
-        if cur.rowcount == 0:
-            item_not_found(item_id)
-        
-        cur.execute("DELETE FROM tags WHERE item_id = %s", (item_id,))
-        db.commit()
+async def delete_item(item_id: int, db: Session = Depends(get_db)):
 
+    # delete in Postgres
+    db_item = db.query(Item).filter(Item.id == item_id).first()
+    if not db_item:
+        item_not_found(item_id)
+
+    # delete tags first
+    db.query(Tag).filter(Tag.item_id == item_id).delete()
+    db.delete(db_item)
+    db.commit()
+
+    # delete in Mongo
     await mongo_db.items_read.delete_one({"_id": item_id})
 
     logger.info("item.delete", item_id=item_id)
-
     return {"detail": f"Item with id {item_id} has been deleted"}

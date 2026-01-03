@@ -1,3 +1,4 @@
+from typing import Tuple, Any, Dict
 
 def itemTupleToDic(item:tuple) : 
     item_dict = {
@@ -18,13 +19,10 @@ def tagTupleToDic(tag:tuple) :
 
     return tag_dic
 
-def userTupleToDic(user:tuple) : 
-    user_dic = {
-        "id" : user[0],
-        "name": user[1],
-        "email": user[2]
-    }
 
-    return user_dic
-    
-    
+def userTupleToDic(row: Tuple[Any, ...]) -> Dict[str, Any]:
+    return {
+        "id": row[0],
+        "name": row[1],
+        "email": row[2],
+    }

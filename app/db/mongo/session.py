@@ -12,8 +12,6 @@ MONGO_PASS = os.getenv("MONGO_PASSWORD")
 
 MONGO_URL = f"mongodb://{MONGO_USER}:{MONGO_PASS}@{MONGO_HOST}:{MONGO_PORT}"
 
-client = AsyncIOMotorClient(MONGO_URL)
+client:AsyncIOMotorClient = AsyncIOMotorClient(MONGO_URL)
 mongo_db = client["items"]
-
-
 

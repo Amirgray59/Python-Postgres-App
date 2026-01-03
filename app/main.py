@@ -8,8 +8,6 @@ from app.utils.logging import configure_logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_tables()
-    create_indexes()
 
     await create_index_mongo()
 

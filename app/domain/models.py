@@ -40,7 +40,7 @@ class ItemUpdate(BaseModel):
 # Item – Response
 # -------------------------
 class ItemResponse(BaseModel):
-    id: int
+    id: int | str
     name: str
     sell_in: int
     quality: int

@@ -6,12 +6,14 @@ from app.domain.models import (
 )
 
 from app.domain.errors import email_already_exist 
+from app.db.postgres.models import Item, Tag, User as PgUser
+
 
 from app.utils.converter import userTupleToDic
-
+from sqlalchemy.orm import Session
 from app.db.postgres.session import get_db 
 from app.db.mongo.session import mongo_db 
-from psycopg import Connection 
+
 
 import structlog
 
@@ -40,26 +42,23 @@ async def all_user() :
 )
 async def create_user(
     user: UserCreate,
-    db: Connection = Depends(get_db),
+    db: Session = Depends(get_db),
 ) : 
-    with db.cursor() as cur : 
-        cur.execute(
-            """
-            INSERT INTO users (name, email)
-            VALUES (%s, %s)
-            RETURNING id, name, email 
-            """,
-            (user.name, user.email)
-        )
-        user = cur.fetchone()
-        db.commit() 
+    user_body = PgUser(
+        name=user.name,
+        email=user.email
+    )
+    db.add(user_body)
+    db.commit()
+    db.refresh(user_body)
 
-    user_dict = userTupleToDic(user)
+    user_dict = {"id": user_body.id, "name": user_body.name, "email": user_body.email}
+
 
     read_model = {
-        "_id": user_dict["id"],
-        "name": user_dict["name"],
-        "email": user_dict["email"]
+        "_id": user_body.id,
+        "name": user_body.name,
+        "email": user_body.email
     }
     
     await mongo_db.users_read.insert_one(read_model)
