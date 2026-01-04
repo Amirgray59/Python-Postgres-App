@@ -1,10 +1,17 @@
+import pytest
+from app.utils.converter import itemTupleToDic, tagTupleToDic, userTupleToDic
 
-def test_user_tuple_to_dict():
-    user_tuple = (1, "amir", "amir@example.com")
-    user_dict = {"id": 1, "name": "amir", "email": "amir@example.com"}
-    assert dict(zip(["id", "name", "email"], user_tuple)) == user_dict
+def test_itemTupleToDic_normal():
+    t = (1, "Sword", 5, 10)
+    expected = {"id": 1, "name": "Sword", "sell_in": 5, "quality": 10}
+    assert itemTupleToDic(t) == expected
 
-def test_item_tuple_to_dict():
-    item_tuple = (1, "item1", 10, 5, 1)
-    item_dict = {"id": 1, "name": "item1", "sell_in": 10, "quality": 5, "owner_id": 1}
-    assert dict(zip(["id","name","sell_in","quality","owner_id"], item_tuple)) == item_dict
+def test_tagTupleToDic_normal():
+    t = (10, "Weapon", 1)
+    expected = {"id": 10, "name": "Weapon", "item_id": 1}
+    assert tagTupleToDic(t) == expected
+
+def test_userTupleToDic_normal():
+    t = (100, "Alice", "alice@example.com")
+    expected = {"id": 100, "name": "Alice", "email": "alice@example.com"}
+    assert userTupleToDic(t) == expected

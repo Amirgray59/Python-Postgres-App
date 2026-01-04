@@ -5,20 +5,14 @@ from app.main import app
 
 @pytest.fixture
 async def async_client(monkeypatch):
-    """
-    Provides an AsyncClient for tests with mocked MongoDB and Postgres session.
-    """
-    # ---- In-memory fake MongoDB ----
     items_store = {}
     users_store = {1: {"_id": 1, "name": "Alice", "email": "alice@example.com"}}
 
-    # Mock users_read
     fake_users = AsyncMock()
     async def fake_find_one_user(query):
         return users_store.get(query["_id"])
     fake_users.find_one.side_effect = fake_find_one_user
 
-    # Mock items_read
     fake_items = AsyncMock()
 
 
@@ -27,7 +21,6 @@ async def async_client(monkeypatch):
         orig = items_store.get(query["_id"])
         if not orig:
             return None
-        # return a copy so endpoint can modify it safely
         item = orig.copy()
         if "_id" not in item and "id" in item:
             item["_id"] = item["id"]
@@ -36,17 +29,14 @@ async def async_client(monkeypatch):
         return item
 
     async def fake_insert_one(item):
-        # always set _id
         if "id" in item and "_id" not in item:
             item["_id"] = item.pop("id")
         elif "_id" not in item:
-            # assign a new _id if none provided
             item["_id"] = max(items_store.keys(), default=10000) + 1
         items_store[item["_id"]] = item
         return item
 
     async def fake_to_list(limit=None):
-        # make sure each item has _id internally
         for item in items_store.values():
             if "_id" not in item and "id" in item:
                 item["_id"] = item.pop("id")
@@ -71,35 +61,36 @@ async def async_client(monkeypatch):
     fake_items.update_one.side_effect = fake_update_one
     fake_items.delete_one.side_effect = fake_delete_one
 
-    # Patch mongo_db in router
-    monkeypatch.setattr("app.api.routes.item.mongo_db.users_read", fake_users)
-    monkeypatch.setattr("app.api.routes.item.mongo_db.items_read", fake_items)
-
     class FakeCursor:
-        def __init__(self, items):
-            self.items = items
+        def __init__(self, store):
+            self.store = store
 
         async def to_list(self, length=None):
-            # return items up to `length` and ensure _id exists
             results = []
-            for item in list(self.items.values())[:length]:
-                # Make a copy to avoid modifying the store
+            for item in list(self.store.values())[:length]:
                 i = item.copy()
                 if "_id" not in i and "id" in i:
                     i["_id"] = i["id"]
                 results.append(i)
             return results
 
-
-    # Instead of async def fake_find(...), just return the cursor immediately
     def fake_find(query=None):
         return FakeCursor(items_store)
 
-    # Patch find
-    fake_items.find = fake_find
+    def items_find(query=None):
+        return FakeCursor(items_store)
+    fake_items.find = items_find
+
+    def users_find(query=None):
+        return FakeCursor(users_store)
+    
+    fake_items.find = lambda query=None: FakeCursor(items_store)
+    fake_users.find = lambda query=None: FakeCursor(users_store)
+
+    monkeypatch.setattr("app.api.routes.item.mongo_db.items_read", fake_items)
+    monkeypatch.setattr("app.api.routes.user.mongo_db.users_read", fake_users)
 
 
-    # ---- Fake Postgres session ----
     class FakeSession:
         def __init__(self):
             self.items = {}
@@ -137,13 +128,11 @@ async def async_client(monkeypatch):
                             self.session = session
 
                         def first(self):
-                            # Simplified: return first matching item
                             if self.session.items:
                                 return list(self.session.items.values())[0]
                             return None
 
                         def delete(self):
-                            # remove all tags
                             self.session.tags.clear()
                     return Filter(self.session)
             return Query(self, model)
@@ -154,7 +143,6 @@ async def async_client(monkeypatch):
 
     monkeypatch.setattr("app.api.routes.item.get_db", lambda: FakeSession())
 
-    # ---- AsyncClient with ASGITransport ----
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client

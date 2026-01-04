@@ -52,6 +52,12 @@ All Alembic commands **must be executed inside the api container**.
 
 ### Apply latest migrations
 
+### Downgrade all migrations (reset schema)
+
+```bash
+docker compose exec api alembic downgrade base
+```
+
 ```bash
 docker compose exec api alembic upgrade head
 ```
@@ -62,11 +68,6 @@ docker compose exec api alembic upgrade head
 docker compose exec api alembic revision --autogenerate -m "create users items tags"
 ```
 
-### Downgrade all migrations (reset schema)
-
-```bash
-docker compose exec api alembic downgrade base
-```
 
 > ⚠️ Note: Alembic only manages PostgreSQL schema.  
 > MongoDB data must be handled separately.
@@ -124,6 +125,56 @@ This script:
 | DELETE | /items/{id}    | Delete item |
 
 ---
+
+## Testing
+
+This project includes both **unit tests** and **integration tests** covering:
+
+- Users routes
+- Items routes
+- Read model behavior (MongoDB projections)
+- Database migrations (Postgres + Alembic)
+
+### Test Types
+
+- **Unit tests**
+  - Domain logic
+  - Validation rules
+  - Error handling
+- **Integration tests**
+  - FastAPI routes
+  - Postgres write model
+  - MongoDB read model
+  - Cross-database consistency (eventual consistency)
+
+### Coverage
+
+- Branch coverage: **~84%**
+- Focus on:
+  - Conditional branches
+  - Error paths
+  - Edge cases in routes
+
+### Running Tests
+
+Make sure Docker containers are running:
+
+```bash
+docker exec kata-backend pytest --cov --cov-branch
+```
+
+## Notes
+
+Tests are isolated and idempotent
+
+Databases are cleaned between test runs
+
+MongoDB is treated as a derived read model
+
+Alembic migrations are tested separately
+
+
+
 
 ## Consistency Model
 

@@ -27,12 +27,10 @@ async def all_items(limit: int = 100):
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
 async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
 
-    # check owner existence in Mongo (read projection)
     user = await mongo_db.users_read.find_one({"_id": item.owner_id})
     if not user:
         owner_not_found(item.owner_id)
 
-    # create item in Postgres
     db_item = Item(
         name=item.name,
         sell_in=item.sell_in,
@@ -43,12 +41,10 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_item)
 
-    # create tags in Postgres
     tag_objs = [Tag(name=tag_name, item_id=db_item.id) for tag_name in item.tags]
     db.add_all(tag_objs)
     db.commit()
 
-    # backfill Mongo read model
     read_model = {
         "_id": db_item.id,
         "name": db_item.name,
@@ -59,7 +55,6 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     }
     await mongo_db.items_read.insert_one(read_model)
 
-    # return API response
     read_model["id"] = read_model.pop("_id")
     logger.info("item.create", item=read_model)
     return read_model
@@ -72,23 +67,28 @@ async def get_item(item_id: int):
         item_not_found(item_id)
 
     owner = item["owner"]
-    item["owner"] = {
-        "id": owner["id"],
-        "name": owner["name"],
-        "email": owner["email"],
-    }
+    try : 
+        item["owner"] = {
+            "id": owner["_id"],
+            "name": owner["name"],
+            "email": owner["email"],
+        }
+    except KeyError : 
+        item["owner"] = {
+            "id": owner["id"],
+            "name": owner["name"],
+            "email": owner["email"],
+        }
     item["id"] = item.pop("_id")
     return item
 
 @router.put("/{item_id}", response_model=ItemResponse)
 async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)):
 
-    # get item from Mongo
     item = await mongo_db.items_read.find_one({"_id": item_id})
     if not item:
         item_not_found(item_id)
 
-    # update Postgres
     db_item = db.query(Item).filter(Item.id == item_id).first()
     if not db_item:
         item_not_found(item_id)
@@ -101,14 +101,12 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
         db_item.quality = payload.quality
 
     if payload.tags is not None:
-        # remove old tags
         db.query(Tag).filter(Tag.item_id == item_id).delete()
         db.add_all([Tag(name=t, item_id=item_id) for t in payload.tags])
 
     db.commit()
     db.refresh(db_item)
 
-    # backfill Mongo
     owner_id = db_item.owner_id
     owner = await mongo_db.users_read.find_one({"_id": owner_id})
     owner_dict = {"id": owner["_id"], "name": owner["name"], "email": owner["email"]} if owner else {"id": owner_id, "name": "unknown", "email": "unknown"}
@@ -135,17 +133,14 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
 @router.delete("/{item_id}", status_code=status.HTTP_200_OK)
 async def delete_item(item_id: int, db: Session = Depends(get_db)):
 
-    # delete in Postgres
     db_item = db.query(Item).filter(Item.id == item_id).first()
     if not db_item:
         item_not_found(item_id)
 
-    # delete tags first
     db.query(Tag).filter(Tag.item_id == item_id).delete()
     db.delete(db_item)
     db.commit()
 
-    # delete in Mongo
     await mongo_db.items_read.delete_one({"_id": item_id})
 
     logger.info("item.delete", item_id=item_id)
