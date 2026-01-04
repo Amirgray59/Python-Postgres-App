@@ -12,5 +12,8 @@ ruff
 motor
 alembic
 asyncio
+httpx
+pytest-asyncio
+pytest-cov
 sqlalchemy
 

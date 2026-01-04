@@ -16,9 +16,6 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/items", tags=["items"])
 
 
-# ------------------------
-# READ ALL ITEMS (Mongo projection)
-# ------------------------
 @router.get("", status_code=status.HTTP_200_OK)
 async def all_items(limit: int = 100):
     cursor = mongo_db.items_read.find({})
@@ -27,10 +24,6 @@ async def all_items(limit: int = 100):
         item["id"] = item.pop("_id")
     return items
 
-
-# ------------------------
-# CREATE ITEM
-# ------------------------
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
 async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
 
@@ -72,9 +65,6 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
     return read_model
 
 
-# ------------------------
-# GET ITEM BY ID
-# ------------------------
 @router.get("/{item_id}", response_model=ItemResponse)
 async def get_item(item_id: int):
     item = await mongo_db.items_read.find_one({"_id": item_id})
@@ -90,10 +80,6 @@ async def get_item(item_id: int):
     item["id"] = item.pop("_id")
     return item
 
-
-# ------------------------
-# UPDATE ITEM
-# ------------------------
 @router.put("/{item_id}", response_model=ItemResponse)
 async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)):
 
@@ -146,10 +132,6 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
     logger.info("item.update", item=updated_item)
     return updated_item
 
-
-# ------------------------
-# DELETE ITEM
-# ------------------------
 @router.delete("/{item_id}", status_code=status.HTTP_200_OK)
 async def delete_item(item_id: int, db: Session = Depends(get_db)):
 
