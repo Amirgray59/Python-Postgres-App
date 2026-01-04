@@ -39,6 +39,8 @@ Index Scan using ix_users_email on users  (cost=0.15..8.17 rows=1 width=68)
   Index Cond: (email = 'test@test.com')
 ```
 
+### Evidence images are availibale at : evidence_images/before.png & after.png
+
 **Result**
 - Sequential scan eliminated
 - Query planner uses B-tree index
