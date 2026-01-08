@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-
+from fastapi import Query
 
 # -------------------------
 # User
@@ -46,3 +46,13 @@ class ItemResponse(BaseModel):
     quality: int
     owner: UserResponse
     tags: List[str]
+
+
+# -------------------------
+# Read Item – Query
+# -------------------------
+class ReadItemTag(BaseModel) : 
+    tag: str 
+    limit: int = Query(20, le=100)
+    cursor: str | None = None 
+    

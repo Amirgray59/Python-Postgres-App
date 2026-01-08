@@ -145,6 +145,6 @@ async def test_delete_item_not_found(async_client, monkeypatch):
         return FakeSession()
     monkeypatch.setattr("app.api.routes.item.get_db", fake_get_db_none)
 
-    response = await async_client.delete("/items/9999")
+    response = await async_client.delete("/items/999999")
     assert response.status_code == 404
-    assert "Item with id 9999 not found" in response.json()["detail"]
+    assert "Item with id 999999 not found" in response.json()["detail"]

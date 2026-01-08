@@ -4,7 +4,9 @@ from typing import List
 from sqlalchemy.orm import Session
 from app.db.postgres.session import get_db
 from app.db.postgres.models import Item, Tag, User as PgUser
-from app.db.mongo.session import mongo_db
+from app.db.mongo.session import mongo_db, get_mongo
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 
 from app.domain.models import ItemCreate, ItemUpdate, ItemResponse
 from app.domain.errors import item_not_found, owner_not_found
@@ -17,17 +19,17 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 
 @router.get("", status_code=status.HTTP_200_OK)
-async def all_items(limit: int = 100):
-    cursor = mongo_db.items_read.find({})
+async def all_items(limit: int = 100, mongo: AsyncIOMotorDatabase = Depends(get_mongo)):
+    cursor = mongo.items_read.find({})
     items = await cursor.to_list(length=limit)
     for item in items:
         item["id"] = item.pop("_id")
     return items
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
-async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
+async def create_item(item: ItemCreate, db: Session = Depends(get_db), mongo: AsyncIOMotorDatabase = Depends(get_mongo)):
 
-    user = await mongo_db.users_read.find_one({"_id": item.owner_id})
+    user = await mongo.users_read.find_one({"_id": item.owner_id})
     if not user:
         owner_not_found(item.owner_id)
 
@@ -37,6 +39,7 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
         quality=item.quality,
         owner_id=item.owner_id
     )
+    
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -53,7 +56,7 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
         "owner": {"id": user["_id"], "name": user["name"], "email": user["email"]},
         "tags": item.tags
     }
-    await mongo_db.items_read.insert_one(read_model)
+    await mongo.items_read.insert_one(read_model)
 
     read_model["id"] = read_model.pop("_id")
     logger.info("item.create", item=read_model)
@@ -61,8 +64,8 @@ async def create_item(item: ItemCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{item_id}", response_model=ItemResponse)
-async def get_item(item_id: int):
-    item = await mongo_db.items_read.find_one({"_id": item_id})
+async def get_item(item_id: int, mongo: AsyncIOMotorDatabase = Depends(get_mongo)):
+    item = await mongo.items_read.find_one({"_id": item_id})
     if not item:
         item_not_found(item_id)
 
@@ -83,9 +86,9 @@ async def get_item(item_id: int):
     return item
 
 @router.put("/{item_id}", response_model=ItemResponse)
-async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db)):
+async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(get_db), mongo: AsyncIOMotorDatabase = Depends(get_mongo)):
 
-    item = await mongo_db.items_read.find_one({"_id": item_id})
+    item = await mongo.items_read.find_one({"_id": item_id})
     if not item:
         item_not_found(item_id)
 
@@ -108,7 +111,7 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
     db.refresh(db_item)
 
     owner_id = db_item.owner_id
-    owner = await mongo_db.users_read.find_one({"_id": owner_id})
+    owner = await mongo.users_read.find_one({"_id": owner_id})
     owner_dict = {"id": owner["_id"], "name": owner["name"], "email": owner["email"]} if owner else {"id": owner_id, "name": "unknown", "email": "unknown"}
 
     update_fields = {}
@@ -121,9 +124,9 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
     if payload.tags is not None:
         update_fields["tags"] = payload.tags
 
-    await mongo_db.items_read.update_one({"_id": item_id}, {"$set": update_fields}, upsert=True)
+    await mongo.items_read.update_one({"_id": item_id}, {"$set": update_fields}, upsert=True)
 
-    updated_item = await mongo_db.items_read.find_one({"_id": item_id})
+    updated_item = await mongo.items_read.find_one({"_id": item_id})
     updated_item["id"] = updated_item.pop("_id")
     updated_item["owner"] = owner_dict
 
@@ -131,7 +134,7 @@ async def update_item(item_id: int, payload: ItemUpdate, db: Session = Depends(g
     return updated_item
 
 @router.delete("/{item_id}", status_code=status.HTTP_200_OK)
-async def delete_item(item_id: int, db: Session = Depends(get_db)):
+async def delete_item(item_id: int, db: Session = Depends(get_db), mongo: AsyncIOMotorDatabase = Depends(get_mongo)):
 
     db_item = db.query(Item).filter(Item.id == item_id).first()
     if not db_item:
@@ -141,7 +144,7 @@ async def delete_item(item_id: int, db: Session = Depends(get_db)):
     db.delete(db_item)
     db.commit()
 
-    await mongo_db.items_read.delete_one({"_id": item_id})
+    await mongo.items_read.delete_one({"_id": item_id})
 
     logger.info("item.delete", item_id=item_id)
     return {"detail": f"Item with id {item_id} has been deleted"}
